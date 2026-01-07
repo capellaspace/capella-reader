@@ -1,0 +1,200 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "capella-reader"
+authors = [{ name = "Scott Staniewicz", email = "scott.stanie@gmail.com" }]
+description = "Basic models and reader for Capella SLCs"
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.10"
+
+classifiers = [
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python",
+  "Topic :: Scientific/Engineering",
+  "Typing :: Typed",
+]
+license = { file = "LICENSE.txt" }
+
+# The version will be written into a version.py upon install, auto-generated
+# https://hatch.pypa.io/latest/version/#configuration
+dynamic = ["version"]
+
+dependencies = ["numpy", "pydantic>=2", "tifffile"]
+
+[project.scripts]
+capella-reader = "capella_reader.cli:main"
+
+[project.optional-dependencies]
+test = [
+  "pre-commit",
+  "pytest",
+  "pytest-cov",
+  "pytest-randomly",
+  "ruff",
+  "ipython",
+]
+docs = [
+  "mkdocs",
+  "mkdocs-gen-files",
+  "mkdocs-jupyter",
+  "mkdocs-literate-nav",
+  "mkdocs-material",
+  "pymdown-extensions",
+  "matplotlib",
+  "mkdocstrings[python]",
+  "mkdocs-section-index",
+]
+
+[project.urls]
+Homepage = "https://github.com/scottstanie/capella-reader"
+"Bug Tracker" = "https://github.com/scottstanie/capella-reader/issues"
+Discussions = "https://github.com/scottstanie/capella-reader/discussions"
+Changelog = "https://github.com/scottstanie/capella-reader/releases"
+
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+[tool.pixi.pypi-dependencies]
+capella-reader = { path = ".", editable = true }
+
+[tool.pixi.dependencies]
+numpy = ">=2"
+pydantic = ">=2"
+tifffile = ">=2025"
+
+[tool.pixi.feature.isce3.dependencies]
+isce3 = "*"
+
+# pixi install -e test
+[tool.pixi.feature.test.dependencies]
+pre-commit = "*"
+pytest = "*"
+pytest-cov = "*"
+pytest-randomly = "*"
+ruff = "*"
+ipython = "*"
+
+[tool.pixi.feature.py311.dependencies]
+python = "3.11.*"
+[tool.pixi.feature.py313.dependencies]
+python = "3.13.*"
+[tool.pixi.feature.py314.dependencies]
+python = "3.14.*"
+
+# pixi install -e docs
+[tool.pixi.feature.docs.dependencies]
+mkdocs = "*"
+mkdocs-gen-files = "*"
+mkdocs-jupyter = "*"
+mkdocs-literate-nav = "*"
+mkdocs-material = "*"
+pymdown-extensions = "*"
+matplotlib = "*"
+
+[tool.pixi.feature.docs.pypi-dependencies]
+mkdocstrings = { extras = ["python"] }
+mkdocs-section-index = "*"
+
+
+[tool.pixi.environments]
+test = ["test"]
+docs = ["docs"]
+# Combine the testing depdencies with python pins:
+test-py311 = ["test", "py311", "isce3"]
+test-py313 = ["test", "py313", "isce3"]
+test-py314 = ["test", "py314"]          # isce3 fail for 3.14
+all = ["test", "docs", "isce3"]
+
+[tool.pixi.tasks]
+check = { cmd = "pre-commit run -a", description = "Run pre-commit checks on all files" }
+test = { cmd = "pytest  --cov=capella_reader tests/", description = "Run pytest" }
+docs = { cmd = "mkdocs serve", description = "Run mkdocs server" }
+download-test-data = { cmd = """
+mkdir -p tests/data && \
+curl -L -o tests/data/CAPELLA_C14_SM_SLC_HH_20240626150051_20240626150055.tif https://capella-open-data.s3.amazonaws.com/data/2024/6/26/CAPELLA_C14_SM_SLC_HH_20240626150051_20240626150055/CAPELLA_C14_SM_SLC_HH_20240626150051_20240626150055.tif && \
+curl -L -o tests/data/CAPELLA_C14_SM_SLC_HH_20240629134910_20240629134915.tif https://capella-open-data.s3.amazonaws.com/data/2024/6/29/CAPELLA_C14_SM_SLC_HH_20240629134910_20240629134915/CAPELLA_C14_SM_SLC_HH_20240629134910_20240629134915.tif
+""", description = "Download Capella SLC test data files" }
+
+[tool.hatch.version]
+source = "vcs"
+[tool.hatch.version.raw-options]
+version_scheme = "no-guess-dev"
+[tool.hatch.build.hooks.vcs]
+version-file = "src/capella_reader/_version.py"
+
+[tool.ruff]
+src = ["src"]
+unsafe-fixes = true
+
+[tool.ruff.lint]
+select = [
+  "A",      # flake8-builtins
+  "ARG",    # flake8-unused-arguments
+  "B",      # flake8-bugbear
+  "C4",     # flake8-comprehensions
+  "D",      # pydocstyle
+  "E",      # pycodestyle (errors)
+  "W",      # pycodestyle (warnings)
+  "EM",     # flake8-errmsg
+  "EXE",    # flake8-executable
+  "F",      # Pyflakes
+  "I",      # isort
+  "ISC",    # flake8-implicit-str-concat
+  "N",      # pep8-naming
+  "NPY201", # numpy 2.0 deprecations
+  "PGH",    # pygrep-hooks
+  "PIE",    # flake8-pie
+  "PL",     # Pylint
+  "PT",     # flake8-pytest-style
+  "PTH",    # flake8-use-pathlib
+  "PYI",    # flake8-pyi
+  "RUF",    # Ruff-specific rules
+  "SIM",    # flake8-simplify
+  "TRY",    # tryceratops
+  "UP",     # pyupgrade
+  "YTT",    # flake8-2020
+]
+
+ignore = [
+  "PTH123", # `open()` should be replaced by `Path.open()`
+  "PLR",    # Pylint Refactor
+  "D100",   # Missing docstring in public module
+  "D102",   # Missing docstring in public method (properties)
+  "D104",   # Missing docstring in public package
+  "D105",   # Missing docstring in magic method
+  "D213",   # D213: Multi-line docstring summary should start at the second line
+  "D203",   # 1 blank line required before class docstring
+  "N806",   # Variable _ in function should be lowercase
+  "SIM108", # Use ternary operator
+  "TRY003", # Avoid specifying long messages outside the exception
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401", "F403"]
+"tests/**" = ["D", "N", "PTH", "ARG001", "PLR2004", "E501", "PLC0415"]
+"docs/**" = ["D", "E501", "PLC0415", "RUF059"]                         # Example scripts
+"src/capella_reader/_version.py" = ["UP007"]                           # Auto-generated file
+
+[tool.black]
+target-version = ["py311", "py312", "py313", "py314"]
+preview = true
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+
+[tool.pytest.ini_options]
+addopts = ""
+filterwarnings = ["error"]
