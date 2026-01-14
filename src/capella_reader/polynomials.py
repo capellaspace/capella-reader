@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from math import comb
 from typing import Any, Self
 
 import numpy as np
@@ -185,3 +186,45 @@ class Poly2D(BaseModel, arbitrary_types_allowed=True):
                 weights *= w_robust
 
         return cls(degree=degree, coefficients=coeffs)
+
+    def shift_x(self, delta: float) -> Self:
+        """Return a new Poly2D q(x, y) = p(x + delta, y).
+
+        Shifts the polynomial in the x variable by substituting (x + delta) for x.
+        This is useful when cropping or resampling changes the origin of the x axis.
+
+        Parameters
+        ----------
+        delta : float
+            Shift applied to x (same units as x in __call__).
+            Positive delta means the new polynomial evaluated at x gives
+            the same value as the old polynomial at x + delta.
+
+        Returns
+        -------
+        Poly2D
+            New polynomial with shifted x coordinate.
+
+        Examples
+        --------
+        >>> coeffs = np.array([[1.0, 0.0], [2.0, 0.0], [3.0, 0.0]])  # 1 + 2x + 3x^2
+        >>> poly = Poly2D(degree=(2, 1), coefficients=coeffs)
+        >>> shifted = poly.shift_x(1.0)  # q(x, y) = p(x + 1, y)
+        >>> poly(2.0, 0.0)  # 1 + 2*2 + 3*4 = 17
+        17.0
+        >>> shifted(1.0, 0.0)  # q(1) = p(2) = 17
+        17.0
+
+        """
+        dx = self.coefficients.shape[0] - 1
+        dy = self.coefficients.shape[1] - 1
+
+        # Build transformation matrix B so that new_coeff[:, j] = B @ old_coeff[:, j]
+        # Expanding (x + delta)^i = sum_{k=0}^{i} C(i, k) * x^k * delta^(i-k)
+        B = np.zeros((dx + 1, dx + 1), dtype=float)
+        for i in range(dx + 1):
+            for k in range(i + 1):
+                B[k, i] = comb(i, k) * (delta ** (i - k))
+
+        new_coeff = B @ self.coefficients
+        return self.model_copy(update={"degree": (dx, dy), "coefficients": new_coeff})

@@ -144,3 +144,68 @@ class TestPoly2D:
         np.testing.assert_allclose(poly.coefficients[1, 0], 2.0, atol=1e-10)
         np.testing.assert_allclose(poly.coefficients[0, 1], 3.0, atol=1e-10)
         np.testing.assert_allclose(poly.coefficients[1, 1], 0.0, atol=1e-10)
+
+    def test_shift_x_matches_evaluation(self):
+        """shift_x(delta) should satisfy q(x, y) = p(x + delta, y)."""
+        rng = np.random.default_rng(0)
+        degree = (3, 2)
+        coeffs = rng.normal(size=(degree[0] + 1, degree[1] + 1))
+        poly = Poly2D(degree=degree, coefficients=coeffs)
+
+        delta = -120.0
+        shifted = poly.shift_x(delta)
+
+        # Check a handful of points (scalar + vector)
+        xs = np.array([0.0, 0.1, 2.5, -3.0])
+        ys = np.array([10.0, 8e5, -1.0, 42.0])
+        for x, y in zip(xs, ys, strict=True):
+            assert shifted(x, y) == pytest.approx(poly(x + delta, y), rel=1e-12)
+
+        # Also check vectorized evaluation works
+        x_arr = np.array([0.0, 1.0, 2.0])
+        y_arr = np.array([3.0, 4.0, 5.0])
+        np.testing.assert_allclose(
+            shifted(x_arr, y_arr), poly(x_arr + delta, y_arr), rtol=1e-12
+        )
+
+    def test_shift_x_known_coefficients(self):
+        """shift_x should produce correct coefficients for a simple polynomial."""
+        # p(x,y) = x + x^2 + x*y
+        # Coeff matrix c[i,j]:
+        # c[1,0]=1 (x)
+        # c[2,0]=1 (x^2)
+        # c[1,1]=1 (x*y)
+        coeffs = np.zeros((3, 2))
+        coeffs[1, 0] = 1.0
+        coeffs[2, 0] = 1.0
+        coeffs[1, 1] = 1.0
+        poly = Poly2D(degree=(2, 1), coefficients=coeffs)
+
+        delta = 2.0
+        shifted = poly.shift_x(delta)  # q(x,y) = p(x+2, y)
+
+        # Expand:
+        # q = (x+2) + (x+2)^2 + (x+2)*y
+        #   = x+2 + (x^2 + 4x + 4) + (x*y + 2y)
+        #   = x^2 + 5x + 6 + x*y + 2y
+        expected = np.zeros((3, 2))
+        expected[0, 0] = 6.0  # constant
+        expected[1, 0] = 5.0  # x
+        expected[2, 0] = 1.0  # x^2
+        expected[0, 1] = 2.0  # y
+        expected[1, 1] = 1.0  # x*y
+
+        np.testing.assert_allclose(shifted.coefficients, expected, atol=1e-12)
+
+        # Spot-check evaluation
+        assert shifted(0.1, 3.0) == pytest.approx(poly(0.1 + delta, 3.0), abs=1e-12)
+
+    def test_shift_x_zero_delta(self):
+        """shift_x(0) should return identical polynomial."""
+        coeffs = [[1.0, 2.0], [3.0, 4.0]]
+        poly = Poly2D(degree=(1, 1), coefficients=coeffs)
+
+        shifted = poly.shift_x(0.0)
+
+        np.testing.assert_array_equal(shifted.coefficients, poly.coefficients)
+        assert shifted.degree == poly.degree
