@@ -27,7 +27,7 @@ license = { file = "LICENSE.txt" }
 # https://setuptools-scm.readthedocs.io/
 dynamic = ["version"]
 
-dependencies = ["numpy", "pydantic>=2", "tifffile"]
+dependencies = ["numpy", "pydantic>=2", "tifffile", "typing_extensions"]
 
 [project.scripts]
 capella-reader = "capella_reader.cli:main"
@@ -71,6 +71,7 @@ capella-reader = { path = ".", editable = true }
 numpy = ">=2"
 pydantic = ">=2"
 tifffile = ">=2025"
+typing_extensions = "*"
 
 [tool.pixi.feature.isce3.dependencies]
 isce3 = "*"

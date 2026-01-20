@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Self
+from typing import Any
 
 import numpy as np
 from numpy.polynomial import Polynomial
 from numpy.polynomial.polynomial import polyval2d, polyvander2d
 from pydantic import BaseModel, Field, field_serializer, field_validator
+from typing_extensions import Self
 
 
 class Poly1D(BaseModel, arbitrary_types_allowed=True):
