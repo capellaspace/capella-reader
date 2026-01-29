@@ -1,7 +1,6 @@
 """Tests for CapellaSLC wrapper."""
 
 import json
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -22,29 +21,29 @@ class TestCapellaSLC:
     def test_creation(self, sample_metadata_dict):
         """Test creating a CapellaSLC object."""
         meta = CapellaSLCMetadata.model_validate(sample_metadata_dict)
-        slc = CapellaSLC(path=Path("/fake/path.tif"), meta=meta)
+        slc = CapellaSLC(path="/fake/path.tif", meta=meta)
 
-        assert slc.path == Path("/fake/path.tif")
+        assert slc.path == "/fake/path.tif"
         assert isinstance(slc.meta, CapellaSLCMetadata)
 
     def test_shape_property(self, sample_metadata_dict):
         """Test the shape property."""
         meta = CapellaSLCMetadata.model_validate(sample_metadata_dict)
-        slc = CapellaSLC(path=Path("/fake/path.tif"), meta=meta)
+        slc = CapellaSLC(path="/fake/path.tif", meta=meta)
 
         assert slc.shape == (1000, 1000)
 
     def test_dtype_property(self, sample_metadata_dict):
         """Test the dtype property."""
         meta = CapellaSLCMetadata.model_validate(sample_metadata_dict)
-        slc = CapellaSLC(path=Path("/fake/path.tif"), meta=meta)
+        slc = CapellaSLC(path="/fake/path.tif", meta=meta)
 
         assert slc.dtype == np.dtype(np.complex64)
 
     def test_metadata_properties(self, sample_metadata_dict):
         """Test derived properties from metadata."""
         meta = CapellaSLCMetadata.model_validate(sample_metadata_dict)
-        slc = CapellaSLC(path=Path("/fake/path.tif"), meta=meta)
+        slc = CapellaSLC(path="/fake/path.tif", meta=meta)
 
         assert slc.range_to_first_sample == 800000.0
         assert slc.delta_range_sample == 0.5
@@ -81,7 +80,7 @@ class TestCapellaSLC:
 
         slc = CapellaSLC.from_file(test_file)
 
-        assert slc.path == test_file
+        assert slc.path == str(test_file)
         assert isinstance(slc.meta, CapellaSLCMetadata)
         assert slc.meta.software_version == sample_metadata_dict["software_version"]
 
@@ -92,12 +91,12 @@ class TestCapellaSLC:
 
         slc = CapellaSLC.from_file(test_file)
 
-        assert slc.path == test_file
+        assert slc.path == str(test_file)
         assert slc.meta.software_version == sample_metadata_dict["software_version"]
 
     def test_from_real_metadata_files(self, metadata_file):
         slc = CapellaSLC.from_file(metadata_file)
-        assert slc.path == metadata_file
+        assert slc.path == str(metadata_file)
         assert slc.delta_range_sample > 0.0
         if slc.meta.collect.image.is_slant_plane:
             # Does not exist in pfa
@@ -180,7 +179,7 @@ class TestCapellaSLC:
     def test_gcps_unavailable_for_json(self, sample_metadata_dict):
         """Test that JSON-backed SLCs do not expose GCPs."""
         meta = CapellaSLCMetadata.model_validate(sample_metadata_dict)
-        slc = CapellaSLC(path=Path("/fake/path.json"), meta=meta)
+        slc = CapellaSLC(path="/fake/path.json", meta=meta)
 
         with pytest.raises(ValueError, match="No GCPs available"):
             _ = slc.gcps

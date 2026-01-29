@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 from functools import cached_property
 from pathlib import Path
-from typing import NamedTuple
+from typing import IO, NamedTuple, cast
 
+import fsspec
 import numpy as np
 import pydantic
 import tifffile
@@ -20,6 +21,13 @@ from capella_reader.metadata import CapellaSLCMetadata
 from capella_reader.polynomials import Poly2D
 
 C_LIGHT = 299792458.0
+
+
+def _get_suffix(path: str) -> str:
+    """Get file suffix from a path string, handling both local and remote paths."""
+    # Remove query string if present (for URLs like s3://bucket/file.tif?param=value)
+    path_without_query = path.split("?")[0]
+    return Path(path_without_query).suffix
 
 
 class CapellaParseError(ValueError):
@@ -47,7 +55,9 @@ class CapellaSLC(BaseModel):
     and exposes image-like helpers (shape, dtype, slicing with __getitem__).
     """
 
-    path: Path = Field(..., description="Path to Capella SLC GeoTIFF or JSON file")
+    path: str = Field(
+        ..., description="Path or URL to Capella SLC GeoTIFF or JSON file"
+    )
     meta: CapellaSLCMetadata = Field(..., description="Full parsed Capella metadata")
 
     @property
@@ -64,10 +74,13 @@ class CapellaSLC(BaseModel):
     def from_file(cls, path: str | Path) -> CapellaSLC:
         """Read TIFFTAG_IMAGEDESCRIPTION and parse metadata.
 
+        Supports both local files and remote URLs (http, https, s3, gs, etc.)
+        via fsspec.
+
         Parameters
         ----------
         path
-            Path to Capella SLC GeoTIFF file
+            Path or URL to Capella SLC GeoTIFF or JSON file
 
         Returns
         -------
@@ -75,23 +88,14 @@ class CapellaSLC(BaseModel):
             Parsed SLC object with metadata
 
         """
-        path = Path(path)
-        if path.suffix == ".tiff" or path.suffix == ".tif":
-            try:
-                with tifffile.TiffFile(path) as tif:
-                    image_description_tag: str = (
-                        tif.pages[0].tags["ImageDescription"].value  # type: ignore[union-attr]
-                    )
-            except KeyError as e:
-                msg = f"Failed to parse Capella ImageDescription tags in {path}"
-                raise CapellaParseError(msg) from e
-                # Continue with TIFF parsing
-            d = json.loads(image_description_tag)
-        elif path.suffix == ".json":
-            # JSON metadata file
-            d = json.loads(path.read_text())
+        path_str = str(path)
+        suffix = _get_suffix(path_str)
+        if suffix in (".tiff", ".tif"):
+            d = cls._read_tiff_metadata(path_str)
+        elif suffix == ".json":
+            d = cls._read_json_metadata(path_str)
         else:
-            msg = f"Unsupported file type: {path.suffix}"
+            msg = f"Unsupported file type: {suffix}"
             raise CapellaParseError(msg)
 
         try:
@@ -99,7 +103,26 @@ class CapellaSLC(BaseModel):
         except pydantic.ValidationError as e:
             msg = "Failed to validate Capella metadata"
             raise CapellaParseError(msg) from e
-        return cls(path=path, meta=meta)
+        return cls(path=path_str, meta=meta)
+
+    @staticmethod
+    def _read_tiff_metadata(path: str) -> dict:
+        """Read metadata from a TIFF file (local or remote)."""
+        try:
+            with fsspec.open(path) as f, tifffile.TiffFile(cast(IO[bytes], f)) as tif:
+                image_description_tag: str = (
+                    tif.pages[0].tags["ImageDescription"].value  # type: ignore[union-attr]
+                )
+        except KeyError as e:
+            msg = f"Failed to parse Capella ImageDescription tags in {path}"
+            raise CapellaParseError(msg) from e
+        return json.loads(image_description_tag)
+
+    @staticmethod
+    def _read_json_metadata(path: str) -> dict:
+        """Read metadata from a JSON file (local or remote)."""
+        with fsspec.open(path, mode="r") as f:
+            return json.load(cast(IO[str], f))
 
     @property
     def collect(self) -> Collect:
@@ -185,11 +208,14 @@ class CapellaSLC(BaseModel):
     @cached_property
     def gcps(self: Self) -> list[GroundControlPoint]:
         """Get the Ground Control Points in the tiff file."""
-        if self.path.suffix == ".json":
+        if _get_suffix(self.path) == ".json":
             msg = "No GCPs available in JSON metadata files"
             raise ValueError(msg)
 
-        with tifffile.TiffFile(self.path) as tif:
+        with (
+            fsspec.open(self.path) as f,
+            tifffile.TiffFile(cast(IO[bytes], f)) as tif,
+        ):
             gcp_arr: np.ndarray = tif.pages[0].tags["ModelTiepointTag"].value  # type: ignore[union-attr]
         # Delete the 3rd column ("3rd" dim of the 2D image)
         out: list[GroundControlPoint] = []
