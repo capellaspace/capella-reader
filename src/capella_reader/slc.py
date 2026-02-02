@@ -24,8 +24,25 @@ from capella_reader.polynomials import Poly2D
 C_LIGHT = 299792458.0
 
 
+def _strip_gdal_vsi_prefix(path: str) -> str:
+    """Strip GDAL virtual file system prefixes (e.g., /vsicurl/, /vsis3/).
+
+    These prefixes are used by GDAL for remote file access but are not understood
+    by fsspec. This function converts them back to standard URLs.
+    """
+    if path.startswith("/vsicurl/"):
+        return path[9:]  # len("/vsicurl/") == 9
+    if path.startswith("/vsis3/"):
+        # Convert /vsis3/bucket/key to s3://bucket/key
+        return "s3://" + path[7:]  # len("/vsis3/") == 7
+    return path
+
+
 def _is_remote_path(path: str) -> bool:
-    """Check if a path is a remote URL (http, https, s3, gs, etc.)."""
+    """Check if path is a remote URL (http, https, s3, etc.) or GDAL virtual path."""
+    # Handle GDAL virtual paths
+    if path.startswith(("/vsicurl/", "/vsis3/")):
+        return True
     return "://" in path and not path.startswith("file://")
 
 
@@ -48,7 +65,9 @@ def _open_file(path: str, mode: str = "rb") -> Iterator[IO]:
                 "Install it with: pip install capella-reader[fsspec]"
             )
             raise ImportError(msg) from e
-        with fsspec.open(path, mode=mode) as f:
+        # Strip GDAL virtual prefixes for fsspec compatibility
+        fsspec_path = _strip_gdal_vsi_prefix(path)
+        with fsspec.open(fsspec_path, mode=mode) as f:
             yield cast(IO, f)
     else:
         with open(path, mode=mode) as f:

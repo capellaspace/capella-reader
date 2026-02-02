@@ -12,7 +12,55 @@ from capella_reader.slc import (
     CapellaImageGeometryError,
     CapellaParseError,
     CapellaSLC,
+    _is_remote_path,
+    _strip_gdal_vsi_prefix,
 )
+
+
+class TestGdalVsiHelpers:
+    """Tests for GDAL VSI path helper functions."""
+
+    def test_strip_vsicurl_prefix(self):
+        """Test stripping /vsicurl/ prefix."""
+        url = "https://example.com/file.tif"
+        assert _strip_gdal_vsi_prefix(f"/vsicurl/{url}") == url
+
+    def test_strip_vsis3_prefix(self):
+        """Test stripping /vsis3/ prefix and converting to s3://."""
+        assert _strip_gdal_vsi_prefix("/vsis3/bucket/key.tif") == "s3://bucket/key.tif"
+
+    def test_strip_no_prefix(self):
+        """Test that paths without VSI prefix are unchanged."""
+        url = "https://example.com/file.tif"
+        assert _strip_gdal_vsi_prefix(url) == url
+
+        local_path = "/local/path/file.tif"
+        assert _strip_gdal_vsi_prefix(local_path) == local_path
+
+    def test_is_remote_path_vsicurl(self):
+        """Test that /vsicurl/ paths are recognized as remote."""
+        assert _is_remote_path("/vsicurl/https://example.com/file.tif")
+
+    def test_is_remote_path_vsis3(self):
+        """Test that /vsis3/ paths are recognized as remote."""
+        assert _is_remote_path("/vsis3/bucket/key.tif")
+
+    def test_is_remote_path_https(self):
+        """Test that https:// URLs are recognized as remote."""
+        assert _is_remote_path("https://example.com/file.tif")
+
+    def test_is_remote_path_s3(self):
+        """Test that s3:// URLs are recognized as remote."""
+        assert _is_remote_path("s3://bucket/key.tif")
+
+    def test_is_remote_path_local(self):
+        """Test that local paths are not recognized as remote."""
+        assert not _is_remote_path("/local/path/file.tif")
+        assert not _is_remote_path("relative/path/file.tif")
+
+    def test_is_remote_path_file_scheme(self):
+        """Test that file:// URLs are not recognized as remote."""
+        assert not _is_remote_path("file:///local/path/file.tif")
 
 
 class TestCapellaSLC:
@@ -223,3 +271,26 @@ class TestCapellaSLCRemote:
         assert slc.meta.product_type == "SLC"
         assert slc.shape[0] > 0
         assert slc.shape[1] > 0
+
+    def test_from_vsicurl_prefixed_tif(self):
+        """Test loading from a /vsicurl/ prefixed URL (GDAL virtual path).
+
+        This tests the fix for the issue where /vsicurl/ prefixed paths
+        were passed to fsspec which doesn't understand this protocol.
+        """
+        vsicurl_path = f"/vsicurl/{REMOTE_TIF_URL}"
+        slc = CapellaSLC.from_file(vsicurl_path)
+
+        # Path should be stored as-is
+        assert slc.path == vsicurl_path
+        assert slc.meta.collect.platform == "capella-13"
+        assert slc.meta.product_type == "SLC"
+
+    def test_from_vsicurl_prefixed_json(self):
+        """Test loading from a /vsicurl/ prefixed JSON URL."""
+        vsicurl_path = f"/vsicurl/{REMOTE_JSON_URL}"
+        slc = CapellaSLC.from_file(vsicurl_path)
+
+        assert slc.path == vsicurl_path
+        assert slc.meta.collect.platform == "capella-13"
+        assert slc.meta.product_type == "SLC"
