@@ -145,7 +145,9 @@ class TestCapellaSLC:
     def test_from_real_metadata_files(self, metadata_file):
         slc = CapellaSLC.from_file(metadata_file)
         assert slc.path == str(metadata_file)
-        assert slc.delta_range_sample > 0.0
+        geom_type = slc.meta.collect.image.image_geometry.type
+        if geom_type in ("slant_plane", "pfa"):
+            assert slc.delta_range_sample > 0.0
         if slc.meta.collect.image.is_slant_plane:
             # Does not exist in pfa
             assert slc.delta_line_time > 0.0

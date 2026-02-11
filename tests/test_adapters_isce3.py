@@ -101,8 +101,11 @@ class TestGetOrbit:
         """Test that SLC input defaults to slc.ref_epoch."""
         slc = CapellaSLC.from_file(metadata_file)
 
-        with pytest.warns(UserWarning, match="not uniformly sampled"):
+        if slc.meta.collect.image.is_geocoded:
             orbit = get_orbit(slc)
+        else:
+            with pytest.warns(UserWarning, match="not uniformly sampled"):
+                orbit = get_orbit(slc)
 
         ref_epoch_str = str(orbit.reference_epoch)
         expected = str(slc.ref_epoch).strip("Z")
@@ -157,8 +160,8 @@ class TestGetOrbit:
 
 def test_get_radar_grid(metadata_file) -> None:
     slc = CapellaSLC.from_file(metadata_file)
-    if slc.meta.collect.image.is_pfa:
-        pytest.skip("PFA mode not supported for isce")
+    if not slc.meta.collect.image.is_slant_plane:
+        pytest.skip("Only slant_plane geometry supported for isce3 radar grid")
 
     grid = isce3_adapter.get_radar_grid(slc)
     assert grid.length == slc.shape[0]
@@ -170,8 +173,8 @@ def test_get_radar_grid(metadata_file) -> None:
 
 def test_get_doppler_lut2d(metadata_file) -> None:
     slc = CapellaSLC.from_file(metadata_file)
-    if slc.meta.collect.image.is_pfa:
-        pytest.skip("PFA mode not supported for isce")
+    if not slc.meta.collect.image.is_slant_plane:
+        pytest.skip("Only slant_plane geometry supported for isce3 doppler lut2d")
     lut = isce3_adapter.get_doppler_lut2d(slc)
     # Check that out sample files have a doppler lookup +/- 500 Hz
     assert -500.0 < lut.eval(0.0, slc.range_to_first_sample) < 500
@@ -180,10 +183,12 @@ def test_get_doppler_lut2d(metadata_file) -> None:
 
 def test_get_doppler_poly(metadata_file) -> None:
     slc = CapellaSLC.from_file(metadata_file)
-    if slc.meta.collect.image.is_pfa:
-        pytest.skip("PFA mode not supported for isce")
+    if not slc.meta.collect.image.is_slant_plane:
+        pytest.skip("Only slant_plane geometry supported for isce3 doppler poly")
 
     poly = isce3_adapter.get_doppler_poly(slc)
+    assert poly is not None
+    assert slc.frequency_doppler_centroid_polynomial is not None
     np.testing.assert_array_equal(
         poly.coeffs, slc.frequency_doppler_centroid_polynomial.coefficients
     )

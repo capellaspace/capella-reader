@@ -18,6 +18,8 @@ def pytest_generate_tests(metafunc):
                 "CAPELLA_C13_SP_SLC_HH_20250826023518_20250826023527_extended.json",
                 "CAPELLA_C13_SP_SLC_HH_20251102104909_20251102104943_extended.json",
                 "CAPELLA_C17_SM_SLC_HH_20251103180619_20251103180628_extended.json",
+                "CAPELLA_C14_SP_GEC_HH_20240709040329_20240709040358_extended.json",
+                "CAPELLA_C14_SP_GEO_HH_20240709040329_20240709040358_extended.json",
             ]
         ]
         metafunc.parametrize("metadata_file", files, ids=lambda p: p.name)

@@ -24,7 +24,7 @@ class TestCapellaSLCMetadata:
 
         assert meta.software_version == "1.0.0"
         assert meta.software_revision == "abc123"
-        assert meta.product_type == "SLC"
+        assert meta.product_type in ("SLC", "GEC", "GEO")
         assert meta.processing_deployment == "production"
 
     def test_collect_parsing(self, sample_metadata_dict):
@@ -149,7 +149,7 @@ class TestCapellaSLCMetadata:
         meta = CapellaSLCMetadata.model_validate_json(json_str)
 
         assert meta.software_version == "2.64.3"
-        assert meta.product_type == "SLC"
+        assert meta.product_type in ("SLC", "GEC", "GEO")
         assert meta.collect.platform == "capella-13"
         assert meta.collect.mode == "spotlight"
 
@@ -213,6 +213,6 @@ class TestCapellaSLCMetadata:
         meta = CapellaSLCMetadata.model_validate_json(json_str)
 
         assert meta.software_version is not None
-        assert meta.product_type == "SLC"
+        assert meta.product_type in ("SLC", "GEC", "GEO")
         assert meta.collect.platform.startswith("capella-")
         assert meta.collect.mode in ["spotlight", "stripmap"]
