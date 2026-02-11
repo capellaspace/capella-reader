@@ -188,12 +188,13 @@ class CapellaSLC(BaseModel):
         image = self.meta.collect.image
         geom = image.image_geometry
         if image.is_pfa:
-            # appease mypy
             assert isinstance(geom, PFAGeometry)
             return geom.row_sample_spacing
-        else:
-            assert isinstance(geom, SlantPlaneGeometry)
-            return geom.delta_range_sample
+        if geom.type != "slant_plane":
+            msg = "Only supported for slant_plane or pfa geometry"
+            raise CapellaImageGeometryError(msg)
+        assert isinstance(geom, SlantPlaneGeometry)
+        return geom.delta_range_sample
 
     @property
     def first_line_time(self: Self) -> Time:

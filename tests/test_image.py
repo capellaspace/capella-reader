@@ -10,13 +10,16 @@ from capella_reader import Time
 from capella_reader.geometry import ECEFPosition
 from capella_reader.image import (
     CenterPixel,
+    GeotransformGeometry,
     ImageMetadata,
     Quantization,
     SlantPlaneGeometry,
+    SurfaceGeometry,
     TerrainModelRef,
     TerrainModels,
     Window,
 )
+from capella_reader.orbit import CoordinateSystem
 from capella_reader.polynomials import Poly1D, Poly2D
 
 
@@ -262,6 +265,44 @@ class TestImageGeometry:
         assert geom.type == "pfa"
         assert geom.model_extra["pfa_specific_param"] == 123.456
         assert geom.model_extra["another_param"] == "value"
+
+    def test_creation_geotransform(self):
+        """Test creating GeotransformGeometry."""
+        geom = GeotransformGeometry(
+            type="geotransform",
+            geotransform=(496247.12, 0.395, 0.0, 4180680.85, 0.0, -0.395),
+            coordinate_system=CoordinateSystem(
+                type="wkt",
+                wkt='PROJCS["WGS 84 / UTM zone 33N"]',
+            ),
+        )
+
+        assert geom.type == "geotransform"
+        assert len(geom.geotransform) == 6
+        assert geom.coordinate_system.type == "wkt"
+
+    def test_creation_surface(self):
+        """Test creating SurfaceGeometry with extra fields."""
+        geom = SurfaceGeometry(
+            type="surface",
+            surface_type="affine",
+            coordinate_system=CoordinateSystem(
+                type="wkt",
+                wkt='PROJCS["WGS 84 / UTM zone 33N"]',
+            ),
+            geotransform=[496247.12, 0.395, 0.0, 4180680.85, 0.0, -0.395],
+        )
+
+        assert geom.type == "surface"
+        assert geom.surface_type == "affine"
+        assert geom.model_extra["geotransform"] == [
+            496247.12,
+            0.395,
+            0.0,
+            4180680.85,
+            0.0,
+            -0.395,
+        ]
 
 
 class TestCenterPixel:

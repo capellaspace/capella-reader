@@ -22,9 +22,11 @@ from capella_reader.geometry import (
 )
 from capella_reader.image import (
     CenterPixel,
+    GeotransformGeometry,
     ImageGeometry,
     ImageMetadata,
     Quantization,
+    SurfaceGeometry,
     TerrainModelRef,
     TerrainModels,
     Window,
@@ -51,6 +53,7 @@ __all__ = [
     "CoordinateSystem",
     "ECEFPosition",
     "ECEFVelocity",
+    "GeotransformGeometry",
     "ImageGeometry",
     "ImageMetadata",
     "PRFEntry",
@@ -62,6 +65,7 @@ __all__ = [
     "RadarTimeVaryingParams",
     "State",
     "StateVector",
+    "SurfaceGeometry",
     "TerrainModelRef",
     "TerrainModels",
     "Time",

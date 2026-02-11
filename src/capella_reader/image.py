@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from capella_reader._time import Time
 from capella_reader.geometry import ECEFPosition
+from capella_reader.orbit import CoordinateSystem
 from capella_reader.polynomials import Poly1D, Poly2D
 
 
@@ -156,8 +157,46 @@ class PFAGeometry(BaseModel):
         return v
 
 
+class GeotransformGeometry(BaseModel):
+    """Geometry parameters for geocoded products (GEC/GEO).
+
+    Uses a 6-element affine transform mapping line/pixel to map coordinates.
+    """
+
+    type: Literal["geotransform"] = Field(
+        ..., description="Image geometry type (geotransform)"
+    )
+    geotransform: tuple[float, float, float, float, float, float] = Field(
+        ...,
+        description="6-element affine transform mapping line/pixel to map coordinates",
+    )
+    coordinate_system: CoordinateSystem = Field(
+        ...,
+        description="Coordinate system that the affine transform maps to",
+    )
+
+
+class SurfaceGeometry(BaseModel):
+    """Geometry parameters for surface-projected products.
+
+    Extra fields are allowed to accommodate the sub-variants
+    (affine vs. equispaced).
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    type: Literal["surface"] = Field(..., description="Image geometry type (surface)")
+    surface_type: str = Field(
+        ..., description="Surface type ('affine' or 'equispaced')"
+    )
+    coordinate_system: CoordinateSystem = Field(
+        ...,
+        description="Coordinate system of the surface coordinates",
+    )
+
+
 ImageGeometry = Annotated[
-    SlantPlaneGeometry | PFAGeometry,
+    SlantPlaneGeometry | PFAGeometry | GeotransformGeometry | SurfaceGeometry,
     Field(discriminator="type"),
 ]
 
@@ -342,6 +381,11 @@ class ImageMetadata(BaseModel):
     def is_pfa(self) -> bool:
         """Check if image uses PFA geometry."""
         return self.image_geometry.type == "pfa"
+
+    @property
+    def is_geocoded(self) -> bool:
+        """Check if image is geocoded."""
+        return isinstance(self.image_geometry, SurfaceGeometry | GeotransformGeometry)
 
     @field_validator(
         "reference_antenna_position", "reference_target_position", mode="before"
