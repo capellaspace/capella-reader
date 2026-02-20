@@ -262,12 +262,14 @@ class CapellaSLC(BaseModel):
 
         with _open_file(self.path) as f, tifffile.TiffFile(f) as tif:
             gcp_arr: np.ndarray = tif.pages[0].tags["ModelTiepointTag"].value  # type: ignore[union-attr]
-        # Delete the 3rd column ("3rd" dim of the 2D image)
+        # ModelTiepointTag stores (I, J, K, X, Y, Z) where I=col, J=row.
+        # Delete column 2 (K) to get (I=col, J=row, X, Y, Z).
         out: list[GroundControlPoint] = []
         gcp_arr = np.asarray(gcp_arr, dtype=float)
         gcp_arr = np.delete(gcp_arr.reshape(-1, 6), 2, axis=1)
-        for row in gcp_arr:
-            out.append(GroundControlPoint(*row.tolist()))
+        for vals in gcp_arr:
+            col, row, x, y, z = vals.tolist()
+            out.append(GroundControlPoint(row=row, col=col, x=x, y=y, z=z))
         return out
 
     @property
