@@ -218,8 +218,8 @@ class TestCapellaSLC:
         assert gcps[0].y == 20.0
         assert gcps[0].z == 30.0
 
-        assert gcps[1].row == 5.0
-        assert gcps[1].col == 10.0
+        assert gcps[1].row == 10.0
+        assert gcps[1].col == 5.0
         assert gcps[1].x == 40.0
         assert gcps[1].y == 50.0
         assert gcps[1].z == 60.0
