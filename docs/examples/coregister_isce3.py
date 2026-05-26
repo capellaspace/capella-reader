@@ -192,24 +192,19 @@ def resample_slc(
     az_off_path: Path,
     output_file: Path,
     *,
-    baseband_input: bool = False,
+    flatten: bool = True,
 ) -> Path:
     """Resample the secondary SLC onto the reference radar grid.
 
-    Set ``baseband_input=True`` when the input SLC carries no Doppler-centroid
-    ramp — e.g. Capella spotlight after deramp-phase restoration — so the
-    azimuth sinc kernel is not frequency-shifted.
+    Set ``flatten=False`` when the slant-range phase is going to be added
+    back later by an external step (e.g. spotlight phase restoration).
     """
     ref_slc = CapellaSLC.from_file(ref_file)
     sec_slc = CapellaSLC.from_file(sec_file)
 
     ref_grid = capella_reader.adapters.isce3.get_radar_grid(ref_slc)
     sec_grid = capella_reader.adapters.isce3.get_radar_grid(sec_slc)
-    doppler_lut = (
-        isce3.core.LUT2d()
-        if baseband_input
-        else capella_reader.adapters.isce3.get_doppler_lut2d(sec_slc)
-    )
+    doppler_lut = capella_reader.adapters.isce3.get_doppler_lut2d(sec_slc)
 
     az_carrier = isce3.core.Poly2d(np.array([0.0]))
     rg_carrier = isce3.core.Poly2d(np.array([0.0]))
@@ -239,7 +234,7 @@ def resample_slc(
     )
 
     t0 = time.time()
-    resamp.resamp(in_raster, out_raster, rg_off_r, az_off_r, flatten=True)
+    resamp.resamp(in_raster, out_raster, rg_off_r, az_off_r, flatten=flatten)
     del in_raster, out_raster, rg_off_r, az_off_r
     print(f"  Resample took {time.time() - t0:.1f} s")
 

@@ -199,6 +199,7 @@ def apply_spotlight_phase_restoration(
     geometry_vrt: Path,
     output_file: Path,
     *,
+    data_file: Path | None = None,
     lines_per_block: int = 1024,
 ) -> Path:
     """Restore the deramping phase, block by block, to a corrected GeoTIFF.
@@ -206,21 +207,27 @@ def apply_spotlight_phase_restoration(
     Parameters
     ----------
     slc_file
-        Capella spotlight SLC (GeoTIFF) to correct.
+        Capella spotlight SLC supplying metadata (ARP, SRP, wavelength).
     geometry_vrt
-        3-band VRT with band 1 = lon, 2 = lat, 3 = height (output of
-        :func:`run_geometry`). Must have the same shape as ``slc_file``.
+        3-band VRT with band 1 = lon, 2 = lat, 3 = height. Must have the
+        same shape as ``data_file`` (i.e. the reference grid when correcting
+        a coregistered secondary).
     output_file
-        Destination GeoTIFF. Written as complex64 with the same shape as
-        the input.
+        Destination GeoTIFF (complex64).
+    data_file
+        Pixel data to correct. Defaults to ``slc_file``. For a coregistered
+        secondary, pass the resampled SLC here while keeping ``slc_file``
+        pointing at the original secondary for its ARP/SRP.
     lines_per_block
         Row block height for processing.
     """
     slc = CapellaSLC.from_file(slc_file)
     geometry = SpotlightGeometry.from_capella_slc(slc)
+    if data_file is None:
+        data_file = slc_file
 
     geo_ds = gdal.Open(fsdecode(geometry_vrt))
-    slc_ds = gdal.Open(fsdecode(slc_file))
+    slc_ds = gdal.Open(fsdecode(data_file))
     rows, cols = slc_ds.RasterYSize, slc_ds.RasterXSize
     if (geo_ds.RasterYSize, geo_ds.RasterXSize) != (rows, cols):
         msg = (

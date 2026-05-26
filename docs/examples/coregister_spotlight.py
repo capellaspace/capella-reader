@@ -3,21 +3,22 @@
 
 Spotlight SLCs are deramped and basebanded by the on-ground processor: a
 geometry-dependent phase has been removed so that the Doppler spectrum sits
-at baseband. Before standard InSAR coregistration we must restore the
-per-pixel slant-range phase (see ``restore_spotlight_phase.py`` and
-``spotlight_phase_restoration.md``). After restoration a spotlight SLC
-behaves like a normal zero-Doppler stripmap SLC and can be fed into the
-usual rdr2geo / geo2rdr / resample pipeline.
+at baseband. We coregister and resample the *deramped* SLCs, then apply
+phase restoration last (see ``restore_spotlight_phase.py``). Restoring after
+resampling keeps the input to the sinc kernel at baseband and lets the
+restoration phase be evaluated analytically on the reference grid for both
+SLCs.
 
-This script chains the two stages:
+Pipeline:
 
   1. DEM (auto-downloaded if --dem-file is omitted)
-  2. Reference phase restoration (rdr2geo + apply restoration)
-  3. Secondary phase restoration (rdr2geo + apply restoration)
-  4. geo2rdr offsets (reference geometry vs. secondary radar grid)
-  5. Coarse resample of the (restored) secondary onto the reference grid
-  6. Fine cross-correlation offsets
-  7. Fine resample with combined coarse + fine offsets
+  2. Reference geometry (rdr2geo on the reference)
+  3. geo2rdr offsets (reference geometry vs. secondary radar grid)
+  4. Coarse resample of the secondary onto the reference grid
+  5. Fine cross-correlation offsets + fine resample
+  6. Restore reference phase
+  7. Restore coregistered secondary phase (using reference's geometry but the
+     secondary's own ARP / SRP for the restoration term)
 
 The output is a phase-restored, coregistered secondary SLC ready to form
 an interferogram against the (also phase-restored) reference SLC.
@@ -55,24 +56,6 @@ from restore_spotlight_phase import (
 )
 
 gdal.UseExceptions()
-
-
-def restore_phase(slc_file: Path, dem_file: Path, slc_dir: Path) -> tuple[Path, Path]:
-    """Restore the deramping phase of ``slc_file`` into ``slc_dir``.
-
-    Returns
-    -------
-    restored_slc
-        Path to the restored complex64 GeoTIFF.
-    geometry_vrt
-        Path to the 3-band lon/lat/height VRT (reused for geo2rdr when this
-        SLC is the reference).
-    """
-    slc_dir.mkdir(parents=True, exist_ok=True)
-    geometry_vrt = run_geometry(slc_file, dem_file, slc_dir)
-    restored = slc_dir / f"{slc_file.stem}.tif"
-    apply_spotlight_phase_restoration(slc_file, geometry_vrt, restored)
-    return restored, geometry_vrt
 
 
 def combine_offsets(
@@ -141,49 +124,54 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     t_start = time.time()
 
-    print("[1/7] DEM")
-    dem_file = create_dem(args.reference, output_dir, args.dem_file)
-
-    print("[2/7] Reference phase restoration")
-    ref_restored, ref_geometry = restore_phase(
-        args.reference, dem_file, output_dir / "reference"
-    )
-
-    print("[3/7] Secondary phase restoration")
-    sec_restored, _ = restore_phase(args.secondary, dem_file, output_dir / "secondary")
-
     coreg_dir = output_dir / "coreg"
     coreg_dir.mkdir(parents=True, exist_ok=True)
 
-    print("[4/7] geo2rdr offsets")
-    rg_off, az_off = run_geo2rdr(sec_restored, ref_geometry, coreg_dir)
+    print("[1/7] DEM")
+    dem_file = create_dem(args.reference, output_dir, args.dem_file)
 
-    print("[5/7] Coarse resample")
+    print("[2/7] Reference geometry (rdr2geo)")
+    ref_geometry = run_geometry(args.reference, dem_file, output_dir / "reference")
+
+    # Coregister on the *deramped* SLCs — their azimuth signal is at baseband,
+    # which is what ISCE3's sinc kernel handles best. Restoration happens last.
+    print("[3/7] geo2rdr offsets")
+    rg_off, az_off = run_geo2rdr(args.secondary, ref_geometry, coreg_dir)
+
+    print("[4/7] Coarse resample (deramped)")
     coarse_file = coreg_dir / "coarse_resampled.tif"
     resample_slc(
-        ref_restored, sec_restored, rg_off, az_off, coarse_file, baseband_input=True
+        args.reference, args.secondary, rg_off, az_off, coarse_file, flatten=False
     )
 
-    print("[6/7] Fine cross-correlation offsets")
-    az_fine, rg_fine = compute_fine_offsets(ref_restored, coarse_file, coreg_dir)
-
-    print("[7/7] Fine resample")
+    print("[5/7] Fine cross-correlation offsets")
+    az_fine, rg_fine = compute_fine_offsets(args.reference, coarse_file, coreg_dir)
     rg_combined, az_combined = combine_offsets(
         rg_off, az_off, rg_fine, az_fine, coreg_dir / "combined_offsets"
     )
-    final_output = coreg_dir / "secondary.coregistered.tif"
+    sec_coreg_deramped = coreg_dir / "secondary.coregistered.deramped.tif"
     resample_slc(
-        ref_restored,
-        sec_restored,
+        args.reference,
+        args.secondary,
         rg_combined,
         az_combined,
-        final_output,
-        baseband_input=True,
+        sec_coreg_deramped,
+        flatten=False,
+    )
+
+    print("[6/7] Restore reference phase")
+    ref_restored = output_dir / f"{args.reference.stem}.restored.tif"
+    apply_spotlight_phase_restoration(args.reference, ref_geometry, ref_restored)
+
+    print("[7/7] Restore coregistered secondary phase")
+    sec_restored = coreg_dir / "secondary.coregistered.tif"
+    apply_spotlight_phase_restoration(
+        args.secondary, ref_geometry, sec_restored, data_file=sec_coreg_deramped
     )
 
     print(f"\nDone in {time.time() - t_start:.1f} s")
     print(f"Reference (restored)         : {ref_restored}")
-    print(f"Secondary (restored + coreg) : {final_output}")
+    print(f"Secondary (restored + coreg) : {sec_restored}")
 
 
 if __name__ == "__main__":
