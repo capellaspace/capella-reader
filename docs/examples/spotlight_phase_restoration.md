@@ -4,22 +4,15 @@ This page explains what `restore_spotlight_phase.py` does and why it is a prereq
 
 ## Background: spotlight deramping
 
-SAR acquisitions collected in spotlight mode steer the antenna beam in the azimuth direction. This increases the dwell time, and consequently the resolution, but the rotation of the antenna beam produces a linear frequency variation in the received signal. The blue boxes in the time-frequency diagram below show the natural spectral support of the raw data: a tilted band whose instantaneous Doppler frequency changes linearly with slow time `t`.
+SAR acquisitions collected in spotlight mode steer the antenna beam in azimuth to track the scene. This increases the dwell time, and consequently the resolution, but the beam rotation produces a linear Doppler variation across the received signal: the instantaneous Doppler frequency sweeps from one end of the antenna bandwidth to the other as slow time progresses.
 
-```
-             f_D                              f_D
-              |        raw                     |        focused
-              | ↗↗↗↗↗↗                         |  ████████
-              |↗↗↗↗↗↗↗  ← f_DC^raw             |  ████████  ← basebanded
-              |↗↗↗↗↗↗   (linearly varying)     |  ████████
-  ────────────+──────────── t       ═►  ───────+──────────── t
-              |                                |
-              |                                |
-```
+![Spotlight deramping in azimuth time-frequency](spotlight_deramp_diagram.png)
 
-To keep the product compact, the Capella processor applies a **deramping and basebanding** step during focusing. The deramp multiplies the signal by a complex exponential whose instantaneous frequency cancels the linear Doppler variation, so the focused SLC has its spectrum centered at zero.  The orange boxes above correspond to that focused / basebanded data.
+To keep the product compact, the Capella processor applies a **deramping and basebanding** step during focusing. The deramp multiplies the signal by a complex exponential whose instantaneous frequency cancels the linear Doppler ramp, so the delivered SLC has its azimuth spectrum centered at zero.
 
-The spectrogram of an example Capella spotlight SLC over Rosamond, CA illustrates the result: the Doppler spectrum sits at baseband and shows no linear drift across azimuth blocks.
+The figure below shows the actual azimuth Doppler spectrogram of a Capella C14 spotlight SLC over Mt Etna, before and after restoration. The as-delivered product (left) sits at baseband, while restoration (right) puts the Doppler centroid back on its original linear track. (The sign of $k_a$ depends on the orbit / look geometry; for this overpass it happens to be positive.)
+
+![Mt Etna spectrogram before and after restoration](etna_spectrogram.png)
 
 ## Why the phase has to be restored
 
