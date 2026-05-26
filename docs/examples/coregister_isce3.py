@@ -4,8 +4,7 @@
 Demonstrates the minimum code needed to coregister two Capella stripmap SLCs
 via DEM-based geometry offsets + amplitude cross-correlation refinement.
 
-Cross-correlation and polynomial fitting utilities are shared with the
-sarpy-based example (coregister_sarpy.py) via coreg_utils.py.
+Cross-correlation utilities live in coreg_utils.py.
 
 Dependencies: isce3, capella-reader, numpy, scipy, gdal.
 Optional: sardem (auto-downloads Copernicus DEM if --dem-file is not provided).

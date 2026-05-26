@@ -14,7 +14,7 @@ pip install matplotlib cartopy pyproj
 
 ### Coregistration and Interferometry
 
-Example scripts demonstrate SLC coregistration and interferogram formation using different processing backends. The ISCE3-based scripts share cross-correlation and polynomial fitting utilities from `coreg_utils.py`.
+Example scripts demonstrate SLC coregistration and interferogram formation using ISCE3. They share cross-correlation utilities from `coreg_utils.py`.
 
 #### `coregister_isce3.py` -- ISCE3 backend (stripmap)
 
@@ -34,19 +34,10 @@ python restore_spotlight_phase.py SPOTLIGHT.tif [--dem-file DEM.tif]
 
 #### `coregister_spotlight.py` -- ISCE3 backend (spotlight pair)
 
-End-to-end pipeline for an InSAR pair of Capella spotlight SLCs. Runs `restore_spotlight_phase.py` on both inputs and then the same rdr2geo/geo2rdr/cross-correlation pipeline as `coregister_isce3.py` on the restored products.
+End-to-end pipeline for an InSAR pair of Capella spotlight SLCs. Runs rdr2geo/geo2rdr/cross-correlation on the deramped inputs, then restores the spotlight phase on both the reference and the coregistered secondary.
 
 ```bash
 python coregister_spotlight.py REFERENCE.tif SECONDARY.tif [--dem-file DEM.tif]
-```
-
-#### `coregister_sarpy.py` -- sarpy backend (PFA / SICD)
-
-Coregisters two SICD SLCs (e.g. Capella PFA spotlight products) and forms an interferogram. Uses sarpy for I/O and point-projection geometry, scipy for resampling. Accepts any format sarpy can read (SICD NITF, Capella GeoTIFF, etc.).
-
-```bash
-pip install sarpy scipy matplotlib
-python coregister_sarpy.py REFERENCE.tif SECONDARY.tif [--output-dir ./coreg_sarpy]
 ```
 
 ### 1. 2D Ground Track Visualization (`orbit_ground_track.py`)
