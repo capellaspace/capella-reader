@@ -92,6 +92,8 @@ def run_geometry(slc_file: Path, dem_file: Path, output_dir: Path) -> Path:
     geom_dir = output_dir / "geometry"
     geom_dir.mkdir(parents=True, exist_ok=True)
     out_vrt = geom_dir / "geometry.vrt"
+    if out_vrt.exists():
+        return out_vrt
 
     slc = CapellaSLC.from_file(slc_file)
     radar_grid = capella_reader.adapters.isce3.get_radar_grid(slc)
@@ -182,10 +184,13 @@ class SpotlightGeometry:
 
 
 def compute_restoration_phase(
-    geometry: SpotlightGeometry, target_ecef: np.ndarray
+    geometry: SpotlightGeometry,
+    target_ecef: tuple[np.ndarray, np.ndarray, np.ndarray],
 ) -> np.ndarray:
     """phi_P = -4 * pi / lambda * ( |ARP - P| - |ARP - P0| )."""
-    r = np.linalg.norm(target_ecef - geometry.reference_antenna_position, axis=-1)
+    x, y, z = target_ecef
+    arp_x, arp_y, arp_z = geometry.reference_antenna_position
+    r = np.sqrt((x - arp_x) ** 2 + (y - arp_y) ** 2 + (z - arp_z) ** 2)
     return (-4.0 * np.pi / geometry.wavelength) * (r - geometry.reference_range)
 
 
@@ -241,9 +246,9 @@ def apply_spotlight_phase_restoration(
     out_band = out_ds.GetRasterBand(1)
 
     t0 = time.time()
-    # Setup LLH to ECEF transformation
+    # Setup LLH to ECEF transformation. always_xy keeps lon/lat order.
     epsg_wgs84_ecef = 4978  # geocentric Cartesian XYZ on WGS84
-    transformer_llh_ecef = Transformer.from_crs(4326, epsg_wgs84_ecef)
+    transformer_llh_ecef = Transformer.from_crs(4326, epsg_wgs84_ecef, always_xy=True)
     for r0 in range(0, rows, lines_per_block):
         nrow = min(lines_per_block, rows - r0)
         lon = lon_band.ReadAsArray(0, r0, cols, nrow)
@@ -251,7 +256,6 @@ def apply_spotlight_phase_restoration(
         hgt = hgt_band.ReadAsArray(0, r0, cols, nrow)
         slc_data = slc_band.ReadAsArray(0, r0, cols, nrow)
 
-        # target_ecef = llh_to_ecef_wgs84(lon, lat, hgt)
         target_ecef = transformer_llh_ecef.transform(lon, lat, hgt, radians=False)
 
         phi = compute_restoration_phase(geometry, target_ecef)

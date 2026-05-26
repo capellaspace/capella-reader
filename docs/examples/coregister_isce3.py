@@ -27,11 +27,7 @@ from pathlib import Path
 
 import isce3
 import numpy as np
-from coreg_utils import (
-    correlate_grid,
-    fit_polynomials_robust,
-)
-from numpy.polynomial.polynomial import polyval2d
+from coreg_utils import bulk_offset, correlate_grid
 from osgeo import gdal
 
 import capella_reader.adapters.isce3
@@ -195,14 +191,25 @@ def resample_slc(
     rg_off_path: Path,
     az_off_path: Path,
     output_file: Path,
+    *,
+    baseband_input: bool = False,
 ) -> Path:
-    """Resample the secondary SLC onto the reference radar grid."""
+    """Resample the secondary SLC onto the reference radar grid.
+
+    Set ``baseband_input=True`` when the input SLC carries no Doppler-centroid
+    ramp — e.g. Capella spotlight after deramp-phase restoration — so the
+    azimuth sinc kernel is not frequency-shifted.
+    """
     ref_slc = CapellaSLC.from_file(ref_file)
     sec_slc = CapellaSLC.from_file(sec_file)
 
     ref_grid = capella_reader.adapters.isce3.get_radar_grid(ref_slc)
     sec_grid = capella_reader.adapters.isce3.get_radar_grid(sec_slc)
-    doppler_lut = capella_reader.adapters.isce3.get_doppler_lut2d(sec_slc)
+    doppler_lut = (
+        isce3.core.LUT2d()
+        if baseband_input
+        else capella_reader.adapters.isce3.get_doppler_lut2d(sec_slc)
+    )
 
     az_carrier = isce3.core.Poly2d(np.array([0.0]))
     rg_carrier = isce3.core.Poly2d(np.array([0.0]))
@@ -254,9 +261,8 @@ def compute_fine_offsets(
     *,
     chip_size: tuple[int, int] = (256, 256),
     upsample_factor: int = 32,
-    peak_ncc_threshold: float = 0.05,
 ) -> tuple[Path, Path]:
-    """Compute fine offset rasters from cross-correlation."""
+    """Constant-shift fine offsets from the median of per-chip correlations."""
     fine_dir = output_dir / "fine_offsets"
     fine_dir.mkdir(parents=True, exist_ok=True)
     az_path = fine_dir / "azimuth.fine.off"
@@ -266,7 +272,6 @@ def compute_fine_offsets(
         print("  Fine offsets already exist, skipping.")
         return az_path, rg_path
 
-    # Load both SLCs into memory
     print("  Loading SLCs ...")
     ref_ds = gdal.Open(str(ref_file))
     sec_ds = gdal.Open(str(sec_file))
@@ -275,53 +280,28 @@ def compute_fine_offsets(
     nrows, ncols = ref_data.shape
     assert sec_data.shape == ref_data.shape, "SLC shapes must match for fine offsets"
 
-    # Correlate on grid
-    row_c, col_c, az_off, rg_off, _snr, ncc = correlate_grid(
+    az_off, rg_off, _err = correlate_grid(
         ref_data,
         sec_data,
         chip_size=chip_size,
         upsample_factor=upsample_factor,
     )
-
-    # Quality filter
-    valid = ~np.isnan(az_off) & (ncc >= peak_ncc_threshold)
-    n_valid = int(np.sum(valid))
-    print(f"  Valid correlations: {n_valid} / {len(az_off)}")
-    assert n_valid > 0, "No correlations passed quality filter"
-
-    # Robust polynomial fit
-    print("  Fitting polynomials ...")
-    az_coeffs, rg_coeffs, inlier = fit_polynomials_robust(
-        row_c[valid],
-        col_c[valid],
-        az_off[valid],
-        rg_off[valid],
+    az_med, rg_med, inliers = bulk_offset(az_off, rg_off)
+    print(
+        f"  Bulk fine offset: az={az_med:+.3f}, rg={rg_med:+.3f}"
+        f" ({inliers.sum()}/{len(az_off)} inlier chips)"
     )
-    print(f"  Final inliers: {np.sum(inlier)}")
-
-    # Evaluate on full pixel grid -> write flat binary + ENVI header
-    az_centers = 0.5 + np.arange(nrows)
-    rg_centers = 0.5 + np.arange(ncols)
 
     az_fine = np.memmap(az_path, mode="w+", dtype=np.float32, shape=(nrows, ncols))
     rg_fine = np.memmap(rg_path, mode="w+", dtype=np.float32, shape=(nrows, ncols))
-
-    block = 1024
-    for r0 in range(0, nrows, block):
-        r1 = min(r0 + block, nrows)
-        YY, XX = np.meshgrid(az_centers[r0:r1], rg_centers, indexing="ij")
-        az_fine[r0:r1, :] = polyval2d(YY, XX, az_coeffs).astype(np.float32)
-        rg_fine[r0:r1, :] = polyval2d(YY, XX, rg_coeffs).astype(np.float32)
-
+    az_fine[:] = np.float32(az_med)
+    rg_fine[:] = np.float32(rg_med)
     az_fine.flush()
     rg_fine.flush()
+    del az_fine, rg_fine
 
-    # Write ENVI headers
     for path in (az_path, rg_path):
         _write_envi_header(path, nrows, ncols, np.dtype("float32"))
-
-    del az_fine, rg_fine
-    print(f"  Fine offsets written to {fine_dir}")
     return az_path, rg_path
 
 
