@@ -20,129 +20,25 @@ python coregister_isce3.py REFERENCE.tif SECONDARY.tif [--dem-file DEM.tif] [--o
 
 import argparse
 import time
-import warnings
 from os import fsdecode
 from pathlib import Path
 
 import isce3
 import numpy as np
-from coreg_utils import bulk_offset, correlate_grid
+from coreg_utils import (
+    bulk_offset,
+    correlate_grid,
+    create_dem,
+    open_slc_isce3,
+    run_geometry,
+    write_envi_header,
+)
 from osgeo import gdal
 
 import capella_reader.adapters.isce3
 from capella_reader import CapellaSLC
 
 gdal.UseExceptions()
-
-# ---------------------------------------------------------------------------
-# 1. DEM creation
-# ---------------------------------------------------------------------------
-
-
-def create_dem(slc_file: Path, output_dir: Path, dem_file: Path | None) -> Path:
-    """Return path to a DEM covering the SLC extent.
-
-    If `dem_file` is provided, return it directly. Otherwise, auto-download
-    a Copernicus DEM via sardem.
-    """
-    if dem_file is not None:
-        return dem_file
-
-    import sardem.dem
-
-    out = output_dir / "dem.tif"
-    if out.exists():
-        print(f"  DEM already exists: {out}")
-        return out
-
-    slc = CapellaSLC.from_file(slc_file)
-    w, s, e, n = slc.bounds
-    pad = 0.3  # degrees
-    bbox = (w - pad, s - pad, e + pad, n + pad)
-    print(f"  Downloading Copernicus DEM for bbox {bbox} ...")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    sardem.dem.main(
-        output_name=str(out),
-        bbox=bbox,
-        data_source="COP",
-        output_type="float32",
-        output_format="GTiff",
-    )
-    print(f"  DEM saved to {out}")
-    return out
-
-
-# ---------------------------------------------------------------------------
-# 2. Reference geometry (rdr2geo)
-# ---------------------------------------------------------------------------
-
-GEOMETRY_LAYERS = {
-    "x_raster": ("x", gdal.GDT_Float64),
-    "y_raster": ("y", gdal.GDT_Float64),
-    "height_raster": ("z", gdal.GDT_Float64),
-    "incidence_angle_raster": ("incidence_angle", gdal.GDT_Float32),
-    "heading_angle_raster": ("heading_angle", gdal.GDT_Float32),
-    "local_incidence_angle_raster": ("local_incidence_angle", gdal.GDT_Float32),
-    "local_psi_raster": ("psi", gdal.GDT_Float32),
-    "simulated_amplitude_raster": ("simulated_amplitude", gdal.GDT_Float32),
-    "layover_shadow_raster": ("layover_shadow_mask", gdal.GDT_Byte),
-    "ground_to_sat_east_raster": ("los_east", gdal.GDT_Float32),
-    "ground_to_sat_north_raster": ("los_north", gdal.GDT_Float32),
-}
-
-
-def _open_slc_isce3(slc_file: Path):
-    """Open a Capella SLC and return (radar_grid, orbit, ellipsoid)."""
-    slc = CapellaSLC.from_file(slc_file)
-    radar_grid = capella_reader.adapters.isce3.get_radar_grid(slc)
-    with warnings.catch_warnings(category=UserWarning, action="ignore"):
-        orbit = capella_reader.adapters.isce3.get_orbit(slc)
-    ellipsoid = isce3.core.make_projection(4326).ellipsoid
-    return slc, radar_grid, orbit, ellipsoid
-
-
-def run_geometry(ref_file: Path, dem_file: Path, output_dir: Path) -> Path:
-    """Compute reference geometry layers via rdr2geo."""
-    geom_dir = output_dir / "geometry"
-    geom_dir.mkdir(parents=True, exist_ok=True)
-    out_vrt = geom_dir / "geometry.vrt"
-
-    _, radar_grid, orbit, ellipsoid = _open_slc_isce3(ref_file)
-    dem_raster = isce3.io.Raster(fsdecode(dem_file))
-
-    rdr2geo = isce3.geometry.Rdr2Geo(
-        radar_grid,
-        orbit,
-        ellipsoid,
-        isce3.core.LUT2d(),
-        threshold=1e-8,
-        numiter=20,
-        extraiter=10,
-        lines_per_block=1024,
-    )
-
-    rasters = [
-        isce3.io.Raster(
-            fsdecode(geom_dir / f"{fname}.tif"),
-            radar_grid.width,
-            radar_grid.length,
-            1,
-            dtype,
-            "GTiff",
-        )
-        for fname, dtype in GEOMETRY_LAYERS.values()
-    ]
-
-    t0 = time.time()
-    rdr2geo.topo(dem_raster, *rasters)
-    print(f"  rdr2geo took {time.time() - t0:.1f} s")
-
-    # Build VRT stacking all layers
-    out_stack = isce3.io.Raster(fsdecode(out_vrt), rasters)
-    out_stack.set_epsg(rdr2geo.epsg_out)
-    del out_stack, rasters
-    return out_vrt
-
 
 # ---------------------------------------------------------------------------
 # 3. geo2rdr offsets
@@ -156,7 +52,7 @@ def run_geo2rdr(
     g2r_dir = output_dir / "geo2rdr"
     g2r_dir.mkdir(parents=True, exist_ok=True)
 
-    _, radar_grid, orbit, ellipsoid = _open_slc_isce3(sec_file)
+    _, radar_grid, orbit, ellipsoid = open_slc_isce3(sec_file)
     doppler = isce3.core.LUT2d()  # Zero-doppler grid
 
     geo2rdr = isce3.geometry.Geo2Rdr(
@@ -295,29 +191,8 @@ def compute_fine_offsets(
     del az_fine, rg_fine
 
     for path in (az_path, rg_path):
-        _write_envi_header(path, nrows, ncols, np.dtype("float32"))
+        write_envi_header(path, nrows, ncols, np.dtype("float32"))
     return az_path, rg_path
-
-
-def _write_envi_header(file_path: Path, lines: int, samples: int, dtype: np.dtype):
-    """Write a minimal ENVI header for a flat binary file."""
-    envi_dtypes = {
-        np.dtype("float32"): 4,
-        np.dtype("float64"): 5,
-        np.dtype("complex64"): 6,
-    }
-    hdr = (
-        "ENVI\n"
-        "description = {Created by coregister_capella.py}\n"
-        f"samples = {samples}\n"
-        f"lines = {lines}\n"
-        "bands = 1\n"
-        "header offset = 0\n"
-        "file type = ENVI Standard\n"
-        f"data type = {envi_dtypes[dtype]}\n"
-        "interleave = bsq\n"
-    )
-    Path(str(file_path) + ".hdr").write_text(hdr)
 
 
 # ---------------------------------------------------------------------------
@@ -402,7 +277,7 @@ def main():
     az_combined.flush()
 
     for path in (rg_combined_path, az_combined_path):
-        _write_envi_header(path, nrows, ncols, np.dtype("float64"))
+        write_envi_header(path, nrows, ncols, np.dtype("float64"))
     del rg_coarse, az_coarse, rg_fine_data, az_fine_data, rg_combined, az_combined
 
     final_output = output_dir / "coregistered.tif"

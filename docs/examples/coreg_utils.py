@@ -1,8 +1,16 @@
-"""Shared cross-correlation utilities for SAR coregistration.
+"""Shared helpers for the Capella InSAR coregistration examples.
 
-Cross-correlation is delegated to ``skimage.registration.phase_cross_correlation``
-with ``normalization=None`` (unnormalized cross-correlation, recommended for noisy
-SAR amplitude imagery per Guizar et al. 2008).
+Two groups of helpers live here:
+
+* **Geometry / DEM** (``create_dem``, ``open_slc_isce3``, ``run_geometry``,
+  ``write_envi_header``): used by both the stripmap pipeline
+  (``coregister_isce3.py``) and the spotlight phase restoration
+  (``restore_spotlight_phase.py``).
+* **Sub-pixel cross-correlation** (``correlate_grid``, ``bulk_offset``):
+  fine offset estimation on a regular grid of chips, delegated to
+  ``skimage.registration.phase_cross_correlation`` with
+  ``normalization=None`` (unnormalized cross-correlation, recommended for
+  noisy SAR amplitude imagery per Guizar et al. 2008).
 
 References
 ----------
@@ -11,8 +19,129 @@ References
    156-158. https://doi.org/10.1364/OL.33.000156
 """
 
+from __future__ import annotations
+
+import time
+import warnings
+from os import fsdecode
+from pathlib import Path
+
+import isce3
 import numpy as np
+from osgeo import gdal
 from skimage.registration import phase_cross_correlation
+
+import capella_reader.adapters.isce3
+from capella_reader import CapellaSLC
+
+
+def create_dem(slc_file: Path, output_dir: Path, dem_file: Path | None) -> Path:
+    """Return a DEM covering the SLC extent; auto-download Copernicus if None."""
+    if dem_file is not None:
+        return dem_file
+
+    import sardem.dem
+
+    out = output_dir / "dem.tif"
+    if out.exists():
+        print(f"  DEM already exists: {out}")
+        return out
+
+    slc = CapellaSLC.from_file(slc_file)
+    w, s, e, n = slc.bounds
+    pad = 0.3  # degrees
+    bbox = (w - pad, s - pad, e + pad, n + pad)
+    print(f"  Downloading Copernicus DEM for bbox {bbox} ...")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sardem.dem.main(
+        output_name=str(out),
+        bbox=bbox,
+        data_source="COP",
+        output_type="float32",
+        output_format="GTiff",
+    )
+    return out
+
+
+def open_slc_isce3(slc_file: Path):
+    """Open a Capella SLC and return ``(slc, radar_grid, orbit, ellipsoid)``."""
+    slc = CapellaSLC.from_file(slc_file)
+    radar_grid = capella_reader.adapters.isce3.get_radar_grid(slc)
+    with warnings.catch_warnings(category=UserWarning, action="ignore"):
+        orbit = capella_reader.adapters.isce3.get_orbit(slc)
+    ellipsoid = isce3.core.make_projection(4326).ellipsoid
+    return slc, radar_grid, orbit, ellipsoid
+
+
+def run_geometry(slc_file: Path, dem_file: Path, output_dir: Path) -> Path:
+    """Compute lon / lat / height per pixel and return the 3-band geometry VRT."""
+    geom_dir = output_dir / "geometry"
+    geom_dir.mkdir(parents=True, exist_ok=True)
+    out_vrt = geom_dir / "geometry.vrt"
+    if out_vrt.exists():
+        return out_vrt
+
+    _, radar_grid, orbit, ellipsoid = open_slc_isce3(slc_file)
+    rdr2geo = isce3.geometry.Rdr2Geo(
+        radar_grid,
+        orbit,
+        ellipsoid,
+        isce3.core.LUT2d(),
+        threshold=1e-8,
+        numiter=20,
+        extraiter=10,
+        lines_per_block=1024,
+    )
+
+    def _layer(name: str) -> isce3.io.Raster:
+        return isce3.io.Raster(
+            fsdecode(geom_dir / f"{name}.tif"),
+            radar_grid.width,
+            radar_grid.length,
+            1,
+            gdal.GDT_Float64,
+            "GTiff",
+        )
+
+    x_raster = _layer("x")
+    y_raster = _layer("y")
+    z_raster = _layer("z")
+
+    t0 = time.time()
+    rdr2geo.topo(
+        isce3.io.Raster(fsdecode(dem_file)),
+        x_raster=x_raster,
+        y_raster=y_raster,
+        height_raster=z_raster,
+    )
+    print(f"  rdr2geo took {time.time() - t0:.1f} s")
+
+    stack = isce3.io.Raster(fsdecode(out_vrt), [x_raster, y_raster, z_raster])
+    stack.set_epsg(rdr2geo.epsg_out)
+    del stack, x_raster, y_raster, z_raster
+    return out_vrt
+
+
+def write_envi_header(
+    file_path: Path, lines: int, samples: int, dtype: np.dtype
+) -> None:
+    """Write a minimal ENVI .hdr sidecar so ISCE3 can mmap the offset rasters."""
+    envi_dtypes = {
+        np.dtype("float32"): 4,
+        np.dtype("float64"): 5,
+        np.dtype("complex64"): 6,
+    }
+    hdr = (
+        "ENVI\n"
+        f"samples = {samples}\n"
+        f"lines = {lines}\n"
+        "bands = 1\n"
+        "header offset = 0\n"
+        "file type = ENVI Standard\n"
+        f"data type = {envi_dtypes[dtype]}\n"
+        "interleave = bsq\n"
+    )
+    Path(str(file_path) + ".hdr").write_text(hdr)
 
 
 def correlate_grid(

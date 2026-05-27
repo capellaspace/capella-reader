@@ -42,18 +42,18 @@ from pathlib import Path
 
 import isce3
 import numpy as np
+from coreg_utils import (
+    create_dem,
+    run_geometry,
+    write_envi_header,
+)
 from coregister_isce3 import (
-    _write_envi_header,
     compute_fine_offsets,
     resample_slc,
     run_geo2rdr,
 )
 from osgeo import gdal
-from restore_spotlight_phase import (
-    apply_spotlight_phase_restoration,
-    create_dem,
-    run_geometry,
-)
+from restore_spotlight_phase import apply_spotlight_phase_restoration
 
 gdal.UseExceptions()
 
@@ -93,7 +93,7 @@ def combine_offsets(
     rg_combined.flush()
     az_combined.flush()
     for path in (rg_combined_path, az_combined_path):
-        _write_envi_header(path, nrows, ncols, np.dtype("float64"))
+        write_envi_header(path, nrows, ncols, np.dtype("float64"))
     del rg_coarse, az_coarse, rg_fine, az_fine, rg_combined, az_combined
     return rg_combined_path, az_combined_path
 
