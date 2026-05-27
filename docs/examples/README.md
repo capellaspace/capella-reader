@@ -12,6 +12,34 @@ pip install matplotlib cartopy pyproj
 
 ## Examples
 
+### Coregistration and Interferometry
+
+Example scripts demonstrate SLC coregistration and interferogram formation using ISCE3. They share cross-correlation utilities from `coreg_utils.py`.
+
+#### `coregister_isce3.py` -- ISCE3 backend (stripmap)
+
+Coregisters two Capella stripmap SLCs via DEM-based geometry (rdr2geo/geo2rdr) plus amplitude cross-correlation refinement. Requires `isce3` and `gdal`.
+
+```bash
+python coregister_isce3.py REFERENCE.tif SECONDARY.tif [--dem-file DEM.tif]
+```
+
+#### `restore_spotlight_phase.py` -- spotlight phase restoration
+
+Standalone preprocessing step for a single Capella spotlight SLC: restores the deramping phase removed by the on-ground processor so the SLC can be used in interferometric workflows. See `spotlight_phase_restoration.md` for the underlying derivation.
+
+```bash
+python restore_spotlight_phase.py SPOTLIGHT.tif [--dem-file DEM.tif]
+```
+
+#### `coregister_spotlight.py` -- ISCE3 backend (spotlight pair)
+
+End-to-end pipeline for an InSAR pair of Capella spotlight SLCs. Runs rdr2geo/geo2rdr/cross-correlation on the deramped inputs, then restores the spotlight phase on both the reference and the coregistered secondary.
+
+```bash
+python coregister_spotlight.py REFERENCE.tif SECONDARY.tif [--dem-file DEM.tif]
+```
+
 ### 1. 2D Ground Track Visualization (`orbit_ground_track.py`)
 
 Visualizes the satellite ground track (orbit projected onto Earth's surface) with the image footprint.
