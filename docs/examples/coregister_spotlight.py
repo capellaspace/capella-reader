@@ -133,7 +133,7 @@ def main() -> None:
     print("[2/7] Reference geometry (rdr2geo)")
     ref_geometry = run_geometry(args.reference, dem_file, output_dir / "reference")
 
-    # Coregister on the *deramped* SLCs — their azimuth signal is at baseband,
+    # Coregister on the *deramped* SLCs - their azimuth signal is at baseband,
     # which is what ISCE3's sinc kernel handles best. Restoration happens last.
     print("[3/7] geo2rdr offsets")
     rg_off, az_off = run_geo2rdr(args.secondary, ref_geometry, coreg_dir)

@@ -16,7 +16,7 @@ Reference Point (both in ECEF, both from the SLC metadata), and P is the
 ECEF position of the ground target underneath the pixel. Multiplying the
 deramped SLC by ``exp(-1j * phi_P)`` returns it to zero-Doppler geometry.
 
-This is a *preprocessing* step — feed the restored SLC into a normal
+This is a *preprocessing* step - feed the restored SLC into a normal
 coregistration pipeline (e.g. ``coregister_isce3.py``) afterwards. See
 ``spotlight_phase_restoration.md`` for a longer explanation.
 

@@ -1,94 +1,68 @@
 # Spotlight Phase Restoration
 
-This page explains what `restore_spotlight_phase.py` does and why it is a prerequisite for interferometric processing of Capella spotlight SLCs.
+This page explains the necessary steps to perform InSAR processing on Capella's spotlight, zero-Doppler processed single-look complex (SLC) images.
+We have provided a script `restore_spotlight_phase.py` to demonstrate, as well as a full pair-processing example as `coregister_spotlight.py`.
 
-## Background: spotlight deramping
+## Time frequency diagram of spotlight data
 
-SAR acquisitions collected in spotlight mode steer the antenna beam in azimuth to track the scene. This increases the dwell time, and consequently the resolution, but the beam rotation produces a linear Doppler variation across the received signal: the instantaneous Doppler frequency sweeps from one end of the antenna bandwidth to the other as slow time progresses.
+SAR acquisitions collected in spotlight mode steer the antenna beam in azimuth to track the scene center. The increased dwell time improves azimuth resolution. The beam rotation produces a linear Doppler variation across the received signal, sweeping the instantaneous Doppler frequency from positive Doppler (forward looking) to negative Doppler (backward looking) as azimuth (slow) time progresses.
 
 ![Spotlight deramping in azimuth time-frequency](spotlight_deramp_diagram.png)
 
-To keep the product compact, the Capella processor applies a **deramping and basebanding** step during focusing. The deramp multiplies the signal by a complex exponential whose instantaneous frequency cancels the linear Doppler ramp, so the delivered SLC has its azimuth spectrum centered at zero.
+The Capella processor applies a deramping and basebanding step during focusing. The deramp multiplies the signal by a complex exponential whose instantaneous frequency cancels the linear Doppler ramp so the delivered SLC has its azimuth spectrum centered at zero.
 
-The figure below shows the actual azimuth Doppler spectrogram of a Capella C14 spotlight SLC over Mt Etna, before and after restoration. The as-delivered product (left) sits at baseband, while restoration (right) puts the Doppler centroid back on its original linear track. (The sign of $k_a$ depends on the orbit / look geometry; for this overpass it happens to be positive.)
+## Model of deramping and basebanding function
 
-![Mt Etna spectrogram before and after restoration](etna_spectrogram.png)
+The deramping step is a pixel-wise multiplication by a complex exponential that depends on geometric position. The SLC phase $\phi$, before deramping, depends on the two-way propagation phase between the radar antenna and the target scatterer, $\phi = -4 \pi \lambda / R$, where $\lambda$ is the radar wavelength.
 
-## Why the phase has to be restored
-
-The deramping step is a *pixel-wise* multiplication by a geometry-dependent complex exponential, so it mutates the phase of every pixel. Interferometric techniques (InSAR, phase linking, persistent scatterers, ...) rely on the SLC phase being the two-way propagation phase, `-4π/λ · R`, between the antenna and the scatterer. The deramped SLC no longer carries that phase, so we must restore it before forming interferograms.
-
-For a ground target `P`, the phase that was removed is
+The Capella metadata includes two metadata items to describe the deramping function: a *Reference Antenna Position*, $A_0$, and *Reference Target Position*, $P_0$. For each ground target point $P$, the phase $\phi_P$ that was removed during processing can be written
 
 $$
-\phi_P \;=\; -\frac{4\pi}{\lambda}\,\bigl(R - R_0\bigr)
-\;=\; -\frac{4\pi}{\lambda}\,\Bigl(\bigl|\mathrm{ARP} - P\bigr| \;-\; \bigl|\mathrm{ARP} - P_0\bigr|\Bigr)
+\begin{align}
+\phi_P &= -\frac{4\pi}{\lambda} \bigl(R - R_0\bigr) \\
+&= -\frac{4\pi}{\lambda} \Bigl(\bigl|A_0 - P\bigr| - \bigl|A_0 - P_0\bigr|\Bigr)
+\end{align}
 $$
 
-where
+where $P$ is the ECEF position of each pixel, $R = |A_0 - P|$ is the slant range to each pixel, and $R_0 = |A_0 - P_0|$ is the scalar "reference distance" (the slant range distance from the reference antenna to the reference position). Since $\phi_P$ was applied at each pixel by the Capella SAR processor, this phase can be restored to the SLC  by multiplying each complex pixel in the deramped SLC $x_{\text{deramped}}$ by the complex conjugate:
 
-- `ARP` is the **Antenna Reference Position** (ECEF, from the SLC metadata
-  field `reference_antenna_position`),
-- `P_0` is the **Scene Reference Point** (ECEF, metadata field
-  `reference_target_position`),
-- `P` is the ECEF position of each ground target under a pixel,
-- `R_0 = |ARP - P_0|` is a single scalar — the slant range from the
-  antenna to the scene reference point,
-- `R = |ARP - P|` is the slant range to the pixel's target.
+$$
+x_{\text{restored}} = x_{\text{deramped}} \cdot e^{-i \phi_P}
+$$
 
-The restored SLC is obtained by multiplying the deramped data by `exp(-1j · φ_P)`, which undoes the deramping and returns it to zero-Doppler geometry:
+The two reference positions are annotated in the SLC metadata  within the "image" subfield as `reference_antenna_position` and `reference_target_position`.  The `P` values for each pixel are the ECEF coordinates of the scene, which can be computed by converting the latitude, longitude, and height of each pixel to ECEF.
 
-```python
-restored = deramped * np.exp(-1j * phi_P)
-```
+## Example script
 
-The two reference positions (`ARP` and `P_0`) are annotated directly in the SLC metadata by the Capella processor, so the only missing ingredient is `P` — the ground position of every pixel.
-
-## Getting `P` for every pixel
-
-We need the ECEF coordinates of the target point underneath each SLC pixel.  That is exactly what `isce3.geometry.Rdr2Geo.topo` ("rdr2geo") computes given the radar grid, orbit, and a DEM: it intersects each range / azimuth ray with the DEM surface and writes the resulting `lon / lat / height` rasters.
-
-`restore_spotlight_phase.py` runs rdr2geo on the input SLC using the capella-reader → isce3 adapters (`get_radar_grid`, `get_orbit`), producing a 3-band geometry VRT (band 1 = longitude, band 2 = latitude, band 3 = height). The restoration step then reads those bands block by block, converts `(lon, lat, height)` to ECEF via the WGS84 ellipsoid, evaluates `φ_P`, and multiplies the SLC.
-
-## Pipeline
-
-`restore_spotlight_phase.py` executes three steps:
-
-1. **DEM** — if `--dem-file` is omitted, a Copernicus DEM covering the SLC footprint (plus a small buffer) is downloaded via [`sardem`](https://github.com/scottstanie/sardem).
-2. **Geometry** — run `isce3.geometry.Rdr2Geo` on the SLC's radar grid and orbit, producing per-pixel lon / lat / height rasters and stacking them into a 3-band `geometry.vrt`.
-3. **Phase restoration** — open the SLC and the geometry VRT, and for
-   each row block:
-   - read `lon`, `lat`, `height`, and the complex SLC tile;
-   - convert to ECEF target positions (`llh_to_ecef_wgs84`);
-   - compute `φ_P` with `compute_restoration_phase`;
-   - multiply by `exp(-1j · φ_P)` and write the corrected tile.
-
-   The Capella `TIFFTAG_IMAGEDESCRIPTION` tag is copied across so the restored GeoTIFF stays readable by `CapellaSLC.from_file`.
-
-## Usage
+A sample Python script is provided to compute the phase correction:
 
 ```bash
 # Auto-downloads a Copernicus DEM over the SLC footprint
-python docs/examples/restore_spotlight_phase.py SPOTLIGHT.tif
+python docs/examples/restore_spotlight_phase.py CAPELLA_SPOTLIGHT_SLC.tif
 
 # Or provide your own DEM in EPSG:4326
-python docs/examples/restore_spotlight_phase.py SPOTLIGHT.tif \
+python docs/examples/restore_spotlight_phase.py CAPELLA_SPOTLIGHT_SLC.tif \
     --dem-file my_dem.tif \
     --output-dir restore_out \
     --output SPOTLIGHT_restored.tif
 ```
 
-After restoration the SLC can be fed into a normal InSAR coregistration
-pipeline such as `coregister_isce3.py`.
+After restoration the SLC can be fed into a normal InSAR coregistration pipeline such as `coregister_isce3.py`.
 
-## Key functions
+`restore_spotlight_phase.py` executes three steps:
 
-- `SpotlightGeometry.from_capella_slc` — pull `ARP`, `P_0`, and `λ` from the SLC metadata.
-- `llh_to_ecef_wgs84` — geodetic → ECEF via the WGS84 ellipsoid.
-- `compute_restoration_phase` — evaluate `-4π/λ · (|ARP - P| - R_0)` for an array of ECEF target points.
-- `apply_spotlight_phase_restoration` — block-wise I/O loop that ties it all together and writes a corrected complex64 GeoTIFF.
+1. (optional) Obtain a DEM: if `--dem-file` is omitted, a Copernicus DEM covering the SLC footprint (plus a small buffer) is downloaded via the [Sardem](https://github.com/scottstanie/sardem) library.
+2. Compute the pixel-wise image geometry (using, for example, `isce3.geometry.Rdr2Geo`) of the SLC's radar coordinates, producing per-pixel lon / lat / height rasters.
+3. Phase re-ramping: open the SLC and the geometry VRT, and for each pixel,
+   - read `lon`, `lat`, `height`, and the complex SLC tile
+   - convert to ECEF target positions (`llh_to_ecef_wgs84`);
+   - compute `φ_P` with `compute_restoration_phase`;
+   - multiply by `exp(-1j · φ_P)` and write the corrected tile.
+
+The figure below shows the azimuth Doppler spectrogram of a Capella C14 spotlight SLC over Mt Etna, before and after the re-reramping procedure. The original SLC's spectrum (left) sits at baseband with no linear frequency increase, while restoration (right) puts the Doppler centroid back on its original linear track.
+
+![Mt Etna spectrogram before and after restoration](etna_spectrogram.png)
 
 ## References
 
-- Capella Space SAR Products Format Specification v1.8 — definitions of `reference_antenna_position` and `reference_target_position`.
-- `isce3.geometry.Rdr2Geo` — per-pixel radar-to-ground coordinate computation used to obtain `P`.
+Capella Space SAR Products Format Specification v1.8 - definitions of `reference_antenna_position` and `reference_target_position`.
