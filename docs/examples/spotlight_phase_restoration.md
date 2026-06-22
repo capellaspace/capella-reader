@@ -13,7 +13,7 @@ The Capella processor applies a deramping and basebanding step during focusing. 
 
 ## Model of deramping and basebanding function
 
-The deramping step is a pixel-wise multiplication by a complex exponential that depends on geometric position. The SLC phase $\phi$, before deramping, depends on the two-way propagation phase between the radar antenna and the target scatterer, $\phi = -4 \pi \lambda / R$, where $\lambda$ is the radar wavelength.
+The deramping step is a pixel-wise multiplication by a complex exponential that depends on geometric position. The SLC phase $\phi$, before deramping, depends on the two-way propagation phase between the radar antenna and the target scatterer, $\phi = \frac{-4 \pi}{\lambda} \cdot R $, where $\lambda$ is the radar wavelength.
 
 The Capella metadata includes two metadata items to describe the deramping function: a *Reference Antenna Position*, $A_0$, and *Reference Target Position*, $P_0$. For each ground target point $P$, the phase $\phi_P$ that was removed during processing can be written
 
