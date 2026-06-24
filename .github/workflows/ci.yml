@@ -23,7 +23,7 @@ jobs:
         shell: bash -l {0}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # https://pixi.prefix.dev/dev/integration/ci/github_actions/
