@@ -9,7 +9,7 @@
 Package for creating typed Python models from Capella Single Look Complex (SLC) GeoTIFF images and JSON metadata.
 
 Capella embeds product metadata in the TIFF tags of its SLC GeoTIFF files[^1]; this package provides utilities for reading and working with that metadata based on the [Capella Product Specification version 1.8](https://support.capellaspace.com/hubfs/Capella_Space_SAR_Products_Format_Specification_v1.8.pdf?hsLang=en). Note that the JSON can be parsed with Python's built-in `json` module; however, this package provides typed models with validation and descriptions for each field for easier integration with other SAR processing libraries.
-Additionally, this package includes an ISCE3 adapter via the `adapters.isce3` subpackage for working with the [ISCE3](https://github.com/isce-framework/isce3) processing library.
+Additionally, this package includes an ISCE3 adapter via the `adapters.isce3` subpackage for working with the [ISCE3](https://github.com/isce-framework/isce3) processing library. The `adapters.snap` subpackage writes SLCs as BEAM-DIMAP products for [ESA SNAP](https://step.esa.int/main/toolboxes/snap/).
 
 Example datasets can be found on the [Capella Open Data catalog](https://www.capellaspace.com/earth-observation/gallery).
 
@@ -102,6 +102,32 @@ doppler_lut = adapters.isce3.get_doppler_lut2d(slc)
 ```
 
 These utilities require [ISCE3 to be installed separately](https://isce-framework.github.io/isce3/buildinstall/). They are not required for basic metadata parsing.
+
+### SNAP Integration
+
+`adapters.snap` writes a slant-plane Capella SLC as a BEAM-DIMAP product, the native format of [ESA SNAP](https://step.esa.int/main/download/snap-download/). SNAP is not required for the conversion.
+
+```python
+from capella_reader import CapellaSLC
+from capella_reader.adapters import snap
+
+slc = CapellaSLC.from_file("path/to/slc.tif")
+snap.write_dimap(slc, "snap/20250730.dim")
+```
+
+The command line does the same conversion:
+
+```bash
+capella-reader to-dimap path/to/slc.tif snap/20250730.dim
+```
+
+Use this product for interferometry in SNAP, not the SNAP Capella reader:
+
+- The SNAP Capella reader (SNAP 14) does not set the Doppler centroid coefficients, the range sampling rate, or the bandwidths. The `Interferogram` operator stops with `Doppler Centroid Coefficients not found`.
+- The product has an incidence angle grid and the image line rate, which SNAP needs to find the range direction and the azimuth times.
+- The phase of a spotlight SLC is converted to the zero-Doppler convention (`snap.spotlight_phase`). Without the conversion, a SNAP spotlight interferogram has an azimuth phase ramp.
+
+[docs/examples/snap_insar_graph.xml](docs/examples/snap_insar_graph.xml) is a SNAP graph that makes an interferogram from two converted products. See the comments in the graph for the parameters to set.
 
 ## Example slc model
 

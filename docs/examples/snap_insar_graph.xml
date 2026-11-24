@@ -1,0 +1,120 @@
+<graph id="capella_insar">
+  <version>1.0</version>
+  <!--
+    Interferogram of two Capella SLCs that `capella-reader to-dimap` converted
+    to BEAM-DIMAP. Steps: orbit and DEM coregistration, cross-correlation
+    offsets, polynomial warp, interferogram with flat-earth and topographic
+    phase removed.
+
+    gpt capella_insar.xml -Pref=REF.dim -Psec=SEC.dim -Pdem=DEM.tif -Pout=OUT.dim \
+        -PcohWinAz=20 -PcohWinRg=24 -PxcorrWindow=128 -PxcorrInterp=8 \
+        -PnumGcps=400 -PfineWindow=256 -PcohThreshold=0.05
+
+    The DEM has WGS84 ellipsoid heights. For a scene of low coherence use
+    fineWindow=512 and cohThreshold=0.02.
+  -->
+  <node id="Read-ref">
+    <operator>Read</operator>
+    <parameters><file>${ref}</file></parameters>
+  </node>
+  <node id="Read-sec">
+    <operator>Read</operator>
+    <parameters><file>${sec}</file></parameters>
+  </node>
+  <node id="Coregistration">
+    <operator>DEM-Assisted-Coregistration</operator>
+    <sources>
+      <sourceProduct refid="Read-ref"/>
+      <sourceProduct.1 refid="Read-sec"/>
+    </sources>
+    <parameters>
+      <demName>External DEM</demName>
+      <externalDEMFile>${dem}</externalDEMFile>
+      <externalDEMNoDataValue>0</externalDEMNoDataValue>
+      <demResamplingMethod>BICUBIC_INTERPOLATION</demResamplingMethod>
+      <resamplingType>BISINC_21_POINT_INTERPOLATION</resamplingType>
+      <maskOutAreaWithoutElevation>false</maskOutAreaWithoutElevation>
+      <outputRangeAzimuthOffset>false</outputRangeAzimuthOffset>
+    </parameters>
+  </node>
+  <node id="BandSelect">
+    <!-- Drop the virtual Intensity bands. Cross-Correlation otherwise takes the
+         reference Intensity band as the secondary and Warp stops with a
+         NullPointerException (SNAP 14.0.0). -->
+    <operator>BandSelect</operator>
+    <sources><source refid="Coregistration"/></sources>
+    <parameters>
+      <bandNamePattern>^[iq]_.*</bandNamePattern>
+      <includeReferences>false</includeReferences>
+    </parameters>
+  </node>
+  <node id="Cross-Correlation">
+    <operator>Cross-Correlation</operator>
+    <sources><sourceProduct refid="BandSelect"/></sources>
+    <parameters>
+      <numGCPtoGenerate>${numGcps}</numGCPtoGenerate>
+      <coarseRegistrationWindowWidth>${xcorrWindow}</coarseRegistrationWindowWidth>
+      <coarseRegistrationWindowHeight>${xcorrWindow}</coarseRegistrationWindowHeight>
+      <rowInterpFactor>${xcorrInterp}</rowInterpFactor>
+      <columnInterpFactor>${xcorrInterp}</columnInterpFactor>
+      <maxIteration>10</maxIteration>
+      <gcpTolerance>0.25</gcpTolerance>
+      <!-- SNAP always runs the "InSAR optimized" fine registration on complex
+           data. Its defaults (32 x 32 windows, correlation above 0.6) reject
+           every point in a scene of low coherence. -->
+      <applyFineRegistration>true</applyFineRegistration>
+      <inSAROptimized>true</inSAROptimized>
+      <fineRegistrationWindowWidth>${fineWindow}</fineRegistrationWindowWidth>
+      <fineRegistrationWindowHeight>${fineWindow}</fineRegistrationWindowHeight>
+      <fineRegistrationWindowAccAzimuth>16</fineRegistrationWindowAccAzimuth>
+      <fineRegistrationWindowAccRange>16</fineRegistrationWindowAccRange>
+      <fineRegistrationOversampling>32</fineRegistrationOversampling>
+      <coherenceThreshold>${cohThreshold}</coherenceThreshold>
+      <computeOffset>false</computeOffset>
+      <onlyGCPsOnLand>false</onlyGCPsOnLand>
+    </parameters>
+  </node>
+  <node id="Warp">
+    <operator>Warp</operator>
+    <sources><sourceProduct refid="Cross-Correlation"/></sources>
+    <parameters>
+      <rmsThreshold>0.05</rmsThreshold>
+      <warpPolynomialOrder>1</warpPolynomialOrder>
+      <interpolationMethod>Truncated sinc (16 points)</interpolationMethod>
+      <demRefinement>false</demRefinement>
+      <excludeMaster>false</excludeMaster>
+      <openResidualsFile>false</openResidualsFile>
+    </parameters>
+  </node>
+  <node id="Interferogram">
+    <operator>Interferogram</operator>
+    <sources><sourceProduct refid="Warp"/></sources>
+    <parameters>
+      <subtractFlatEarthPhase>true</subtractFlatEarthPhase>
+      <srpPolynomialDegree>5</srpPolynomialDegree>
+      <srpNumberPoints>501</srpNumberPoints>
+      <orbitDegree>5</orbitDegree>
+      <includeCoherence>true</includeCoherence>
+      <cohWinAz>${cohWinAz}</cohWinAz>
+      <cohWinRg>${cohWinRg}</cohWinRg>
+      <squarePixel>false</squarePixel>
+      <subtractTopographicPhase>true</subtractTopographicPhase>
+      <demName>External DEM</demName>
+      <externalDEMFile>${dem}</externalDEMFile>
+      <externalDEMNoDataValue>0</externalDEMNoDataValue>
+      <externalDEMApplyEGM>false</externalDEMApplyEGM>
+      <!-- With the default of 100 the DEM triangulation leaves triangular phase
+           errors at the tile corners when the pixels are much smaller than the
+           DEM posting. -->
+      <tileExtensionPercent>400</tileExtensionPercent>
+    </parameters>
+  </node>
+  <node id="Write">
+    <operator>Write</operator>
+    <sources><sourceProduct refid="Interferogram"/></sources>
+    <parameters>
+      <file>${out}</file>
+      <formatName>BEAM-DIMAP</formatName>
+    </parameters>
+  </node>
+</graph>
