@@ -8,7 +8,10 @@ Modules
 -------
 isce3
     ISCE3 conversion utilities (requires isce3 to be installed)
+snap
+    ESA SNAP conversion utilities: writes BEAM-DIMAP products (SNAP is not
+    required to be installed)
 
 """
 
-__all__ = ["isce3"]
+__all__ = ["isce3", "snap"]
